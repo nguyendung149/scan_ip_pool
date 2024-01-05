@@ -1,0 +1,302 @@
+<!-- index.html -->
+{% load static %}
+
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/html">
+
+<head>
+  <title>Page Title</title>
+</head>
+
+<!--CSS-->
+<link rel="stylesheet" type="text/css" href="{% static  'style.css' %}" />
+<link rel="stylesheet" href="../static/bao.css" />
+<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0-beta.2/css/bootstrap.min.css" />
+
+<body>
+  <header>
+    <h3>GIÁM SÁT THIẾT BỊ</h3>
+  </header>
+
+  <main>
+    <!-- this will show our spinner -->
+    <div hidden id="spinner"></div>
+
+    <div class="search-filter-tag">
+      <div class="search">
+        Nhập thông tin:
+        <input type="text" id="searchInput" name="search" />
+        <button type="button" class="bt-search" onclick="searchIPRange()">
+          Tìm kiếm
+        </button>
+
+        <button type="submit" class="bt-monitor" onclick="monitorDevices()">
+          Giám sát
+        </button>
+        <button type="submit" class="bt-import" onclick="importExcel()">
+          Import
+        </button>
+        <input type="file" id="excelFileInput" accept=".xlsx, .xls" />
+        <button type="button" class="bt-ex-excel" onclick="exportToExcel()">
+          Xuất excel
+        </button>
+      </div>
+      <div class="category"></div>
+      <div class="tag"></div>
+    </div>
+
+    <div>
+      <table>
+        <thead>
+          <tr>
+            <td>STT</td>
+            <td>Mã TB</td>
+            <td>Tên TB</td>
+            <td>Địa chỉ lắp đặt</td>
+            <td>Tên thiết bị</td>
+            <td>Địa chỉ IP</td>
+            <td>Trạng thái TB</td>
+          </tr>
+        </thead>
+
+        <tbody id="deviceTableBody">
+          {% for dv in result %}
+          <tr>
+            <td>{{ forloop.counter }}</td>
+            <td>{{ dv.device_type }}</td>
+            <td>{{ dv.username }}</td>
+            <td>{{ dv.username }}</td>
+            <td>{{ dv.hostname }}</td>
+            <td>{{ dv.ip }}</td>
+            <td>{{ dv.status }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </main>
+  <script>
+    const spinner = document.getElementById("spinner");
+
+    function loadData() {
+      spinner.removeAttribute("hidden");
+      fetch(`/scan?start_ip=${startIP}&end_ip=${endIP}`)
+        .then(function (response) {
+          return response.json();
+        })
+        .then((data) => {
+          spinner.setAttribute("hidden", "");
+          result.push(...data.result);
+
+          // Kiểm tra nếu đã quét xong tất cả các khoảng IP
+          if (result.length >= ipRangeArray.length) {
+            // Cập nhật bảng với kết quả đã thu thập được
+            updateTable(result);
+          }
+        })
+        .catch(function (error) {
+          console.log("Error:", error);
+        });
+    }
+
+    function searchIPRange() {
+      var input = document.getElementById("searchInput");
+      var ipRange = input.value; // Lấy giá trị khoảng IP từ ô nhập liệu
+      var ipRangeArray = ipRange.split(","); // Tách các khoảng IP thành mảng
+      let spinne = false;
+      var result = []; // Mảng kết quả
+
+      var tableBody = document.getElementById("deviceTableBody");
+      tableBody.innerHTML = ""; // Xóa toàn bộ nội dung cũ của tbody
+
+      // Duyệt qua từng khoảng IP và gọi API scanIPRange
+      ipRangeArray.forEach(function (range) {
+        var rangeArray = range.split("-"); // Tách khoảng IP thành mảng [start_ip, end_ip]
+        var startIP = rangeArray[0].trim();
+        var endIP = rangeArray[1].trim();
+
+        // Gọi API scanIPRange với khoảng IP đã nhập
+        spinner.removeAttribute("hidden");
+        fetch(`/scan?start_ip=${startIP}&end_ip=${endIP}`)
+          .then(function (response) {
+            return response.json();
+          })
+          .then((data) => {
+            spinner.setAttribute("hidden", "");
+            result.push(...data.result);
+
+            // Kiểm tra nếu đã quét xong tất cả các khoảng IP
+            if (result.length >= ipRangeArray.length) {
+              // Cập nhật bảng với kết quả đã thu thập được
+              updateTable(result);
+            }
+          })
+          .catch(function (error) {
+            console.log("Error:", error);
+          });
+      });
+    }
+    function getIPAddressesFromTable() {
+      var ipAddresses = [];
+      var tableRows = document.querySelectorAll("#deviceTableBody tr");
+
+      tableRows.forEach(function (row) {
+        var ipCell = row.querySelector("td:nth-child(6)");
+        if (ipCell) {
+          var hostnameCell = row.querySelector("td:nth-child(5)"); // Lấy ô chứa hostname
+          var hostname = hostnameCell ? hostnameCell.textContent : ""; // Lấy hostname nếu tồn tại, ngược lại là chuỗi rỗng
+          ipAddresses.push({ ip: ipCell.textContent, hostname: hostname }); // Thêm đối tượng {ip, hostname} vào mảng ipAddresses
+        }
+      });
+
+      return ipAddresses;
+    }
+
+    function monitorDevices() {
+      var ipAddresses = getIPAddressesFromTable();
+      var completedRequests = 0;  // Biến đếm số lượng yêu cầu đã hoàn thành
+      var result = []; // Mảng kết quả
+
+      // Gửi yêu cầu Ajax đến hàm check với từng địa chỉ IP và hostname
+      ipAddresses.forEach(function (address) {
+        var ipAddress = address.ip;
+        var hostname = address.hostname;
+        fetch(`/check?ip=${ipAddress}&hostname=${hostname}`)
+          .then(function (response) {
+            return response.json();
+          })
+          .then(function (data) {
+            result.push(...data.result);
+
+            completedRequests++;  // Tăng biến đếm lên một đơn vị
+
+            // Kiểm tra nếu tất cả các yêu cầu đã hoàn thành
+            if (completedRequests === ipAddresses.length) {
+              // Gọi hàm updateTable để cập nhật bảng
+              updateTable(result);
+            }
+          })
+          .catch(function (error) {
+            console.log("Error:", error);
+          });
+      });
+    }
+    function updateTable(result) {
+      var tableBody = document.getElementById("deviceTableBody");
+      tableBody.innerHTML = ""; // Xóa toàn bộ nội dung cũ của tbody
+
+      // Duyệt qua danh sách thiết bị và tạo các hàng mới trong bảng
+      result.forEach(function (dv, index) {
+        var row = document.createElement("tr");
+
+        var sttCell = document.createElement("td");
+        sttCell.textContent = index + 1;
+        row.appendChild(sttCell);
+
+        var deviceTypeCell = document.createElement("td");
+        deviceTypeCell.textContent = dv.device_type;
+        row.appendChild(deviceTypeCell);
+
+        var usernameCell = document.createElement("td");
+        usernameCell.textContent = dv.username;
+        row.appendChild(usernameCell);
+
+        var usernameCell = document.createElement("td");
+        usernameCell.textContent = dv.username;
+        row.appendChild(usernameCell);
+
+        var hostnameCell = document.createElement("td");
+        hostnameCell.textContent = dv.hostname;
+        row.appendChild(hostnameCell);
+
+        var ipCell = document.createElement("td");
+        ipCell.textContent = dv.ip;
+        row.appendChild(ipCell);
+
+        var statusCell = document.createElement("td");
+        statusCell.textContent = dv.status;
+        row.appendChild(statusCell);
+
+        tableBody.appendChild(row);
+      });
+    }
+
+    function exportToExcel() {
+      // Tạo một đối tượng Workbook mới
+      var wb = XLSX.utils.book_new();
+
+      // Tạo một đối tượng Worksheet mới
+      var ws = XLSX.utils.table_to_sheet(
+        document.getElementById("deviceTableBody")
+      );
+
+      // Thêm Worksheet vào Workbook
+      XLSX.utils.book_append_sheet(wb, ws, "Dữ liệu");
+
+      // Chuyển đổi Workbook thành dạng file Excel
+      var wbout = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+
+      // Tạo một Blob từ dữ liệu Excel
+      var blob = new Blob([wbout], { type: "application/octet-stream" });
+
+      // Tạo URL từ Blob
+      var url = URL.createObjectURL(blob);
+
+      // Tạo một thẻ <a> để download file Excel
+      var a = document.createElement("a");
+      a.href = url;
+      a.download = "data.xlsx";
+      a.click();
+
+      // Giải phóng URL
+      URL.revokeObjectURL(url);
+    }
+    function importExcel() {
+      var fileInput = document.getElementById("excelFileInput");
+      var file = fileInput.files[0];
+
+      var reader = new FileReader();
+
+      reader.onload = function (e) {
+        var data = new Uint8Array(e.target.result);
+        var workbook = XLSX.read(data, { type: "array" });
+
+        var worksheet = workbook.Sheets[workbook.SheetNames[0]];
+        var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+
+        var result = [];
+
+        // Assuming the data starts from the second row (index 1)
+        for (var i = 0; i < jsonData.length; i++) {
+          var row = jsonData[i];
+
+          if (row.length === 7) {
+            var dv = {
+              device_type: row[1].toString().trim(),
+              username: row[2].toString().trim(),
+              hostname: row[4].toString().trim(),
+              ip: row[5].toString().trim(),
+              status: row[6].toString().trim(),
+            };
+
+            result.push(dv);
+          }
+        }
+
+        updateTable(result);
+      };
+
+      reader.readAsArrayBuffer(file);
+    }
+  </script>
+
+  <!-- Thư viện jquery đã nén phục vụ cho bootstrap.min.js  -->
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js"></script>
+  <!-- Thư viện popper đã nén phục vụ cho bootstrap.min.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.12.6/umd/popper.min.js"></script>
+  <!-- Bản js đã nén của bootstrap 4, đặt dưới cùng trước thẻ đóng body-->
+  <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0-beta.2/js/bootstrap.min.js"></script>
+  <script src="https://unpkg.com/xlsx/dist/xlsx.full.min.js"></script>
+</body>
+
+</html>
